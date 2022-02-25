@@ -1,0 +1,1 @@
+data class CarVM(val id: Long?, val model: String, val colour: String, val year: Int, val engineCapacity: Double)
