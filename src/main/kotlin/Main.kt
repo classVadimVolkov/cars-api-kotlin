@@ -1,40 +1,61 @@
-import org.jetbrains.exposed.sql.Database
-import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.StdOutSqlLogger
-import org.jetbrains.exposed.sql.addLogger
-import org.jetbrains.exposed.sql.transactions.transaction
-
-object DbParams {
-    const val URL: String = "jdbc:h2:mem:cars"
-    const val DRIVER: String = "org.h2.Driver"
-    const val USER: String = ""
-    const val PASSWORD: String = ""
-}
+import org.http4k.core.*
+import org.http4k.filter.DebuggingFilters
+import org.http4k.filter.ServerFilters
+import org.http4k.format.Jackson.auto
+import org.http4k.lens.Path
+import org.http4k.lens.Query
+import org.http4k.lens.string
+import org.http4k.routing.bind
+import org.http4k.routing.routes
+import org.http4k.server.SunHttp
+import org.http4k.server.asServer
 
 fun main() {
-    Database.connect(url = DbParams.URL, driver = DbParams.DRIVER, user = DbParams.USER, password = DbParams.PASSWORD)
+    initAndPopulateDB()
     val repository: CarRepository = JpaCarRepository()
 
-    transaction {
-        addLogger(StdOutSqlLogger)
-        SchemaUtils.create(CarTable)
+    val listCarLens = Body.auto<List<CarVM>>().toLens()
+    val carLens = Body.auto<CarVM>().toLens()
+    val idPathLens = Path.string().of("id")
+    val colourParamLens = Query.required("colour")
 
-        val created1 = repository.create(CarVM(null, "Toyota", "Blue", 2010, 1.8))
-        println("Created: $created1")
+    DebuggingFilters
+        .PrintRequestAndResponse()
+        .then(ServerFilters.CatchLensFailure)
+        .then(
+            routes(
+                "/cars" bind Method.POST to {
+                    val carVM: CarVM = carLens(it)
+                    repository.create(carVM)
+                    Response(Status.CREATED)
+                },
 
-        val created2 = repository.create(CarVM(null, "Mercedes", "Green", 2015, 2.5))
-        println("Created: $created2")
+                "/cars" bind Method.PUT to {
+                    val carVM: CarVM = carLens(it)
+                    repository.update(carVM)
+                    Response(Status.NO_CONTENT)
+                },
 
-        val updated = repository.update(CarVM(1, "Ford", "Red", 2020, 2.0))
-        println("Updated: $updated")
+                "/cars/{id}" bind Method.DELETE to {
+                    val id: Long = idPathLens(it).toLong()
+                    repository.deleteById(id)
+                    Response(Status.NO_CONTENT)
+                },
 
-        val all = repository.getAll()
-        println("Get all: $all")
+                "/cars/{id}" bind Method.GET to {
+                    val id: Long = idPathLens(it).toLong()
+                    carLens(repository.getById(id), Response(Status.OK))
+                },
 
-        val allByColour = repository.getAllByColour(Colour.GREEN)
-        println("Get all by colour: $allByColour")
+                "cars/search/by-colour" bind Method.GET to {
+                    val colour: String = colourParamLens(it)
+                    listCarLens(repository.getAllByColour(stringToEnum(colour)), Response(Status.OK))
+                },
 
-        repository.deleteById(2)
-        println("After deleting by id: ${repository.getAll()}")
-    }
+                "/cars" bind Method.GET to {
+                    listCarLens(repository.getAll(), Response(Status.OK))
+                }
+            )
+        )
+        .asServer(SunHttp(8080)).start()
 }

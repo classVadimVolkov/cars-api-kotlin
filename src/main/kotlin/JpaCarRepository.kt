@@ -7,45 +7,54 @@ import org.jetbrains.exposed.sql.update
 
 class JpaCarRepository : CarRepository {
     override fun create(carVM: CarVM): CarVM {
-        return CarDAO.new {
-            model = carVM.model
-            colour = Colour.valueOf(carVM.colour.uppercase())
-            year = carVM.year
-            engineCapacity = (carVM.engineCapacity * 10).toInt()
-        }.toVm()
+        return transaction {
+            CarEntity.new {
+                model = carVM.model
+                colour = stringToEnum(carVM.colour)
+                year = carVM.year
+                engineCapacity = (carVM.capacity * 10).toInt()
+                mileage = carVM.mileage
+            }.toVm()
+        }
     }
 
     override fun update(carVM: CarVM): CarVM? {
-        CarTable.update({ CarTable.id eq carVM.id }) {
-            it[model] = carVM.model
-            it[colour] = Colour.valueOf(carVM.colour.uppercase())
-            it[year] = carVM.year
-            it[engineCapacity] = (carVM.engineCapacity * 10).toInt()
+        return transaction {
+            CarTable.update({ CarTable.id eq carVM.id }) {
+                it[model] = carVM.model
+                it[colour] = stringToEnum(carVM.colour)
+                it[year] = carVM.year
+                it[engineCapacity] = (carVM.capacity * 10).toInt()
+                it[mileage] = carVM.mileage
+            }
+            CarEntity.reload(Entity(EntityID(carVM.id, CarTable)))?.toVm()
         }
-        return CarDAO.reload(Entity(EntityID(carVM.id, CarTable)))?.toVm()
     }
 
     override fun deleteById(id: Long) {
-        CarTable.deleteWhere { CarTable.id eq id }
+        transaction { CarTable.deleteWhere { CarTable.id eq id } }
     }
 
     override fun getById(id: Long): CarVM {
-        return CarDAO.findById(id)!!.toVm()
+        return transaction { CarEntity.findById(id)!!.toVm() }
     }
 
     override fun getAll(): List<CarVM> {
-        return transaction { CarDAO.all().map { it.toVm() } }
+        return transaction { CarEntity.all().map { it.toVm() } }
     }
 
     override fun getAllByColour(colour: Colour): List<CarVM> {
-        return CarTable.select { CarTable.colour eq colour }.map {
-            CarVM(
-                it[CarTable.id].value,
-                it[CarTable.model],
-                it[CarTable.colour].toString().lowercase().replaceFirstChar { char -> char.uppercase() },
-                it[CarTable.year],
-                it[CarTable.engineCapacity] / 10.0
-            )
+        return transaction {
+            CarTable.select { CarTable.colour eq colour }.map {
+                CarVM(
+                    it[CarTable.id].value,
+                    it[CarTable.model],
+                    enumToString(it[CarTable.colour]),
+                    it[CarTable.year],
+                    it[CarTable.engineCapacity] / 10.0,
+                    it[CarTable.mileage]
+                )
+            }
         }
     }
 }

@@ -5,4 +5,5 @@ object CarTable : LongIdTable() {
     val colour = enumeration("colour", Colour::class)
     val year = integer("year")
     val engineCapacity = integer("capacity")
+    val mileage = integer("mileage")
 }
